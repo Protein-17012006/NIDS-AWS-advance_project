@@ -1,38 +1,6 @@
-# Ignore everything
-*
-
-# Allow specific folders
-!victim/
-!victim/**
-!victim_webapp/
-!victim_webapp/**
-!user_simulator/
-!user_simulator/**
-!scripts/
-!scripts/**
-!Project/
-!Project/Model/
-!Project/Model/Model_IRM/
-!Project/Model/Model_IRM/**
-!Model_Deep_learning/
-!Model_Deep_learning/**
-!lambda/
-!lambda/**
-!ids_engine/
-!ids_engine/**
-!dashboard/
-!dashboard/**
-!cfn/
-!cfn/**
-!attacker_ui/
-!attacker_ui/**
-!attacker/
-!attacker/**
-
-# Allow gitignore itself
-!.gitignore
-
-# Ignore common large/binary files within allowed folders
+*.pkl
+*.csv
+*.parquet
 **/__pycache__/
 **/*.pyc
 **/node_modules/
