@@ -1,0 +1,25 @@
+version: "3.8"
+# Vulnerable services on WebServer EC2 (GoibhniUWE-inspired)
+# Runs alongside native httpd on port 80
+# All ports exposed on host for traffic mirroring
+
+services:
+  # DVWA — Damn Vulnerable Web Application
+  # Creates distinctive web exploitation traffic on port 8080
+  dvwa:
+    image: vulnerables/web-dvwa
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: dvwa
+    mem_limit: 256m
+
+  # Weak SSH — Easy-to-brute-force SSH server
+  # Creates distinctive SSH auth failure traffic on port 2222
+  weak-ssh:
+    image: rastasheep/ubuntu-sshd:18.04
+    ports:
+      - "2222:22"
+    restart: unless-stopped
+    mem_limit: 128m

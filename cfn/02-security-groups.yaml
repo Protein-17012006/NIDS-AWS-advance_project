@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NIDS v3 Security Groups — 6 SGs for simplified architecture.
+
+Parameters:
+  AdminIP:
+    Type: String
+    Description: Your public IP for SSH access (x.x.x.x/32)
+    AllowedPattern: '(\d{1,3}\.){3}\d{1,3}/\d{1,2}'
+
+Resources:
+  # ============================================================
+  # ATTACKER (Public Subnet)
+  # ============================================================
+  SGAttacker:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Attacker EC2 - SSH from admin, all outbound to VPC
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminIP
+          Description: SSH from admin
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          CidrIp: '0.0.0.0/0'
+          Description: Attacker UI web dashboard
+        - IpProtocol: tcp
+          FromPort: 4444
+          ToPort: 4444
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: Reverse shell callback from VPC (infiltration)
+
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: All VPC traffic
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+          Description: HTTPS for package installs
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+          Description: HTTP for apt-get in Docker builds
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-Attacker
+
+  # ============================================================
+  # VICTIM SERVERS (Web, DNS)
+  # ============================================================
+  SGVictim:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Victim servers - HTTP/SSH/DNS/FTP from VPC
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: HTTP from VPC
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+          Description: HTTP from internet via NLB
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: '0.0.0.0/0'
+          Description: ML WebApp from internet via NLB
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: HTTPS from VPC
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: '0.0.0.0/0'
+          Description: SSH from internet via NLB (brute-force target)
+        - IpProtocol: tcp
+          FromPort: 21
+          ToPort: 21
+          CidrIp: '0.0.0.0/0'
+          Description: FTP from internet via NLB
+        - IpProtocol: tcp
+          FromPort: 2222
+          ToPort: 2222
+          CidrIp: '0.0.0.0/0'
+          Description: Weak SSH container from internet via NLB
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: '0.0.0.0/0'
+          Description: DVWA container from internet via NLB
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: ICMP from VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-Victim
+
+  # ============================================================
+  # SENSOR (VXLAN mirror receiver + YAF)
+  # ============================================================
+  SGSensor:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Sensor EC2 - VXLAN mirror inbound, HTTP to engine
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 4789
+          ToPort: 4789
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: VXLAN traffic from mirror
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-Sensor
+
+  # ============================================================
+  # IDS ENGINE (Fargate — FastAPI :8000)
+  # ============================================================
+  SGIDSEngine:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: IDS Engine - FastAPI from VPC
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: FastAPI from VPC (Sensor + Dashboard)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-IDSEngine
+
+  # ============================================================
+  # ALB (internet-facing)
+  # ============================================================
+  SGALB:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB - HTTP from internet
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+          Description: HTTP from internet
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: Forward to Dashboard
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-ALB
+
+  # ============================================================
+  # DASHBOARD (Fargate — nginx :3000, behind ALB)
+  # ============================================================
+  SGDashboard:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Dashboard - port 3000 from ALB
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref SGALB
+          Description: From ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-Dashboard
+
+Outputs:
+  SGAttackerId:
+    Value: !Ref SGAttacker
+    Export:
+      Name: NIDS-SG-Attacker
+  SGVictimId:
+    Value: !Ref SGVictim
+    Export:
+      Name: NIDS-SG-Victim
+  SGSensorId:
+    Value: !Ref SGSensor
+    Export:
+      Name: NIDS-SG-Sensor
+  SGIDSEngineId:
+    Value: !Ref SGIDSEngine
+    Export:
+      Name: NIDS-SG-IDSEngine
+  SGALBId:
+    Value: !Ref SGALB
+    Export:
+      Name: NIDS-SG-ALB
+  SGDashboardId:
+    Value: !Ref SGDashboard
+    Export:
+      Name: NIDS-SG-Dashboard

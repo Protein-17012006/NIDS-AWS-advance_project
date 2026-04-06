@@ -1,0 +1,302 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NIDS v3 VPC — Simplified 4-subnet architecture:
+  Public (Attacker + ALB + UserSimulator), Victim (Web/DNS), IDS Zone (Sensor + Fargate).
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+  PublicSubnetCidr:
+    Type: String
+    Default: '10.0.0.0/24'
+  PublicSubnet2Cidr:
+    Type: String
+    Default: '10.0.6.0/24'
+  VictimSubnetCidr:
+    Type: String
+    Default: '10.0.1.0/24'
+  IDSSubnetCidr:
+    Type: String
+    Default: '10.0.5.0/24'
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-southeast-1a
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-southeast-1b
+
+Resources:
+  # ============================================================
+  # VPC
+  # ============================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: NIDS-VPC
+
+  # ============================================================
+  # INTERNET GATEWAY
+  # ============================================================
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: NIDS-IGW
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ============================================================
+  # SUBNETS
+  # ============================================================
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: NIDS-Public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Ref AvailabilityZone2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: NIDS-Public-2
+
+  VictimSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref VictimSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: NIDS-Victim
+
+  IDSSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref IDSSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: NIDS-IDS
+
+  # ============================================================
+  # NAT GATEWAY
+  # ============================================================
+  NATElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttachment
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: NIDS-NAT
+
+  # ============================================================
+  # ROUTE TABLES
+  # ============================================================
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: NIDS-Public-RT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRTA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RTA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: NIDS-Private-RT
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NATGateway
+
+  VictimSubnetRTA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VictimSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  IDSSubnetRTA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref IDSSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ============================================================
+  # NACLs
+  # ============================================================
+  PublicNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: NIDS-Public-NACL
+
+  PublicNACLAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      NetworkAclId: !Ref PublicNACL
+
+  PublicNACLAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      NetworkAclId: !Ref PublicNACL
+
+  PublicNACLInbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNACL
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      CidrBlock: '0.0.0.0/0'
+
+  PublicNACLOutbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNACL
+      RuleNumber: 100
+      Protocol: -1
+      Egress: true
+      RuleAction: allow
+      CidrBlock: '0.0.0.0/0'
+
+  PrivateNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: NIDS-Private-NACL
+
+  VictimNACLAssoc:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref VictimSubnet
+      NetworkAclId: !Ref PrivateNACL
+
+  IDSNACLAssoc:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref IDSSubnet
+      NetworkAclId: !Ref PrivateNACL
+
+  PrivateNACLInboundVPC:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNACL
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      CidrBlock: !Ref VpcCidr
+
+  PrivateNACLInboundReturn:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNACL
+      RuleNumber: 200
+      Protocol: -1
+      RuleAction: allow
+      CidrBlock: '0.0.0.0/0'
+
+  PrivateNACLOutbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNACL
+      RuleNumber: 100
+      Protocol: -1
+      Egress: true
+      RuleAction: allow
+      CidrBlock: '0.0.0.0/0'
+
+Outputs:
+  VPCId:
+    Value: !Ref VPC
+    Export:
+      Name: NIDS-VPC-Id
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+    Export:
+      Name: NIDS-PublicSubnet-Id
+  PublicSubnet2Id:
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: NIDS-PublicSubnet2-Id
+  VictimSubnetId:
+    Value: !Ref VictimSubnet
+    Export:
+      Name: NIDS-VictimSubnet-Id
+  IDSSubnetId:
+    Value: !Ref IDSSubnet
+    Export:
+      Name: NIDS-IDSSubnet-Id
+  VpcCidr:
+    Value: !Ref VpcCidr
+    Export:
+      Name: NIDS-VPC-Cidr
+  PublicNACLId:
+    Value: !Ref PublicNACL
+    Export:
+      Name: NIDS-PublicNACL-Id
+  PrivateNACLId:
+    Value: !Ref PrivateNACL
+    Export:
+      Name: NIDS-PrivateNACL-Id

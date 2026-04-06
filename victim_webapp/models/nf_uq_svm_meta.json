@@ -1,0 +1,53 @@
+{
+  "dataset": "nf_uq",
+  "model": "svm",
+  "display_name": "SVM (SGD)",
+  "accuracy": 0.905,
+  "training_time_sec": 1.72,
+  "needs_scaler": true,
+  "report": {
+    "BENIGN": {
+      "precision": 0.7327510917030567,
+      "recall": 0.9442881260551491,
+      "f1-score": 0.825178264076715,
+      "support": 1777.0
+    },
+    "BruteForce": {
+      "precision": 0.9941383352872216,
+      "recall": 0.9976470588235294,
+      "f1-score": 0.9958896065766295,
+      "support": 850.0
+    },
+    "DDoS": {
+      "precision": 0.9878048780487805,
+      "recall": 0.9820386169735069,
+      "f1-score": 0.9849133078135555,
+      "support": 2227.0
+    },
+    "DoS": {
+      "precision": 0.9846088071825566,
+      "recall": 0.9692760942760943,
+      "f1-score": 0.976882290562036,
+      "support": 2376.0
+    },
+    "Infiltration": {
+      "precision": 0.5151515151515151,
+      "recall": 0.11371237458193979,
+      "f1-score": 0.1863013698630137,
+      "support": 598.0
+    },
+    "accuracy": 0.9049565661727134,
+    "macro avg": {
+      "precision": 0.8428909254746261,
+      "recall": 0.8013924541420441,
+      "f1-score": 0.79383296777839,
+      "support": 7828.0
+    },
+    "weighted avg": {
+      "precision": 0.8935167182283426,
+      "recall": 0.9049565661727134,
+      "f1-score": 0.886398878245877,
+      "support": 7828.0
+    }
+  }
+}

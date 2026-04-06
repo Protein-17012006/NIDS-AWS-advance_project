@@ -1,0 +1,266 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NIDS v3 IAM Roles — ECS tasks, Sensor, Attacker, Victim instances.
+
+Resources:
+  # ============================================================
+  # ECS TASK EXECUTION ROLE (pull ECR, write CW logs)
+  # ============================================================
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-ECSTaskExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  # ============================================================
+  # IDS ENGINE TASK ROLE (S3 models, SSM attacks, CloudWatch, SNS)
+  # ============================================================
+  IDSEngineTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-IDSEngineTaskRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: IDSEnginePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data'
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data/models/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data/models/*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: 'NIDS/Predictions'
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:nids-alerts'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkAclEntry
+                  - ec2:DeleteNetworkAclEntry
+                  - ec2:DescribeNetworkAcls
+                  - ec2:ReplaceNetworkAclEntry
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  # ============================================================
+  # ATTACKER INSTANCE PROFILE (SSM managed)
+  # ============================================================
+  AttackerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-AttackerInstanceRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  AttackerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: NIDS-AttackerInstanceProfile
+      Roles:
+        - !Ref AttackerInstanceRole
+
+  # ============================================================
+  # PRIVATE INSTANCE PROFILE (Victim EC2s — SSM only)
+  # ============================================================
+  PrivateInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-PrivateInstanceRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: WebServerAppPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data'
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data/webapp/*'
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/nids-ml-backend'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/nids-ml-frontend'
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  PrivateInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: NIDS-PrivateInstanceProfile
+      Roles:
+        - !Ref PrivateInstanceRole
+
+  # ============================================================
+  # SENSOR INSTANCE PROFILE (SSM + CloudWatch logs)
+  # ============================================================
+  SensorInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-SensorInstanceRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SensorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/nids/sensor*'
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  SensorInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: NIDS-SensorInstanceProfile
+      Roles:
+        - !Ref SensorInstanceRole
+
+  # ============================================================
+  # LAMBDA DATA COLLECTION ROLE
+  # ============================================================
+  DataCollectionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NIDS-DataCollectionLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: DataCollectionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::nids-${AWS::AccountId}-data/collected-data/*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: 'NIDS/DataCollection'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/nids-data-collection*'
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+Outputs:
+  ECSTaskExecutionRoleArn:
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: NIDS-ECSTaskExecutionRole-Arn
+  IDSEngineTaskRoleArn:
+    Value: !GetAtt IDSEngineTaskRole.Arn
+    Export:
+      Name: NIDS-IDSEngineTaskRole-Arn
+  AttackerInstanceProfileName:
+    Value: !Ref AttackerInstanceProfile
+    Export:
+      Name: NIDS-AttackerInstanceProfile-Name
+  PrivateInstanceProfileName:
+    Value: !Ref PrivateInstanceProfile
+    Export:
+      Name: NIDS-PrivateInstanceProfile-Name
+  SensorInstanceProfileName:
+    Value: !Ref SensorInstanceProfile
+    Export:
+      Name: NIDS-SensorInstanceProfile-Name
+  DataCollectionLambdaRoleArn:
+    Value: !GetAtt DataCollectionLambdaRole.Arn
+    Export:
+      Name: NIDS-DataCollectionLambdaRole-Arn

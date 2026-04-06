@@ -1,0 +1,20 @@
+{
+  "name": "CIC-IDS-2017",
+  "key": "cic2017",
+  "total_samples": 33657,
+  "num_features": 33,
+  "classes": [
+    "BENIGN",
+    "BruteForce",
+    "DDoS",
+    "DoS",
+    "Infiltration"
+  ],
+  "class_distribution": {
+    "BENIGN": 26368,
+    "DoS": 4185,
+    "DDoS": 2774,
+    "BruteForce": 324,
+    "Infiltration": 6
+  }
+}

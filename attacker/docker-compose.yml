@@ -1,0 +1,69 @@
+# Multi-container attack orchestration
+# Usage: docker compose up --scale ddos=5 --scale bruteforce=3
+# Environment: DURATION (seconds), TARGET_IP (victim IP)
+
+x-common: &common
+  image: nids-attacker:latest
+  restart: "no"
+  environment:
+    TARGET_IP: ${TARGET_IP}
+    DURATION: ${DURATION:-60}
+  network_mode: host
+
+services:
+  # ============================================================
+  # DDoS — Mixed volumetric: SYN flood + UDP flood + HTTP flood
+  # Creates distinctive flow patterns:
+  #   SYN flood: packetTotalCount=1, reversePacketTotalCount=0, duration~0
+  #   UDP flood: protocol=17, no reverse traffic
+  #   HTTP flood: high connection rate, small payloads
+  # ============================================================
+  ddos:
+    <<: *common
+    entrypoint: ["/bin/bash", "/opt/attacks/ddos.sh"]
+
+  # ============================================================
+  # DoS — Slowloris + Slow POST
+  # Distinctive: very long duration, low data rate, many keep-alive headers
+  # ============================================================
+  dos:
+    <<: *common
+    entrypoint: ["/bin/bash", "/opt/attacks/dos.sh"]
+
+  # ============================================================
+  # BruteForce — Real SSH/FTP brute-force with hydra
+  # Distinctive: dst_port=22/2222, SSH appLabel, many short auth sessions
+  # ============================================================
+  bruteforce:
+    <<: *common
+    entrypoint: ["/bin/bash", "/opt/attacks/bruteforce.sh"]
+
+  # ============================================================
+  # Infiltration — Web-based APT: recon → web exploits → credential stuffing → exfiltration
+  # Distinctive: targeted port scans, SQLi/XSS payloads, credential attempts, large POST exfil
+  # ============================================================
+  infiltration:
+    <<: *common
+    environment:
+      TARGET_IP: ${TARGET_IP}
+      DURATION: ${DURATION:-120}
+      ATTACKER_IP: ${ATTACKER_IP}
+    entrypoint: ["/bin/bash", "/opt/attacks/infiltration.sh"]
+
+  # ============================================================
+  # Attack Simulator Web UI — dark-themed control panel on port 9000
+  # ============================================================
+  attacker-ui:
+    image: nids-attacker-ui:latest
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      TARGET_IP: ${TARGET_IP}
+      ATTACKER_IP: ${ATTACKER_IP}
+      IDS_API_URL: ${IDS_API_URL:-http://engine.nids.local:8000}
+      COMPOSE_DIR: /opt/nids-attacker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/nids-attacker:/opt/nids-attacker
+    network_mode: host

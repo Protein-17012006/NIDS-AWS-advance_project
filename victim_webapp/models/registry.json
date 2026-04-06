@@ -1,0 +1,43 @@
+{
+  "datasets": {
+    "cic2017": {
+      "display": "CIC-IDS-2017",
+      "key": "cic2017"
+    },
+    "cic2018": {
+      "display": "CSE-CIC-IDS-2018",
+      "key": "cic2018"
+    },
+    "nf_uq": {
+      "display": "NF-UQ-NIDS-v2",
+      "key": "nf_uq"
+    }
+  },
+  "models": {
+    "knn": {
+      "display": "K-Nearest Neighbors",
+      "key": "knn",
+      "needs_scaler": true
+    },
+    "logistic_regression": {
+      "display": "Logistic Regression",
+      "key": "logistic_regression",
+      "needs_scaler": true
+    },
+    "svm": {
+      "display": "SVM (SGD)",
+      "key": "svm",
+      "needs_scaler": true
+    },
+    "decision_tree": {
+      "display": "Decision Tree",
+      "key": "decision_tree",
+      "needs_scaler": false
+    },
+    "random_forest": {
+      "display": "Random Forest",
+      "key": "random_forest",
+      "needs_scaler": false
+    }
+  }
+}

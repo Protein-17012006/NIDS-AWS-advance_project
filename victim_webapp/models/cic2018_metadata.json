@@ -1,0 +1,20 @@
+{
+  "name": "CSE-CIC-IDS-2018",
+  "key": "cic2018",
+  "total_samples": 29374,
+  "num_features": 33,
+  "classes": [
+    "BENIGN",
+    "BruteForce",
+    "DDoS",
+    "DoS",
+    "Infiltration"
+  ],
+  "class_distribution": {
+    "DoS": 9403,
+    "DDoS": 7652,
+    "BruteForce": 5702,
+    "BENIGN": 4263,
+    "Infiltration": 2354
+  }
+}

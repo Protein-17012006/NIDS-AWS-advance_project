@@ -1,0 +1,121 @@
+# User Simulator — 9 virtual users with unique VPC IPs
+# Deployed on NIDS-UserSimulator EC2 (c7i-flex.large) in PUBLIC subnet
+# Users are external to the server subnet — access WebServer across subnets
+# Traffic captured by WebServer's traffic mirror (session 1)
+# vpcnet → enp39s0: IPs 10.0.0.101-109 (9 users)
+
+x-common: &common
+  image: 341796273409.dkr.ecr.ap-southeast-1.amazonaws.com/nids-user-simulator:v4
+  restart: unless-stopped
+  mem_limit: 64m
+  environment:
+    WEB_SERVER_IP: ${WEB_SERVER_IP}
+    DNS_SERVER_IP: "10.0.1.12"
+  dns:
+    - 10.0.0.2
+
+services:
+  # ── Data Analysts (heavy ML WebApp usage) ───────────────
+  analyst-1:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "0"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.101
+
+  analyst-2:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "1"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.102
+
+  analyst-3:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "2"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.103
+
+  # ── Developers (API-heavy + SSH + testing) ──────────────
+  developer-1:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "3"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.104
+
+  developer-2:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "4"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.105
+
+  # ── Managers (light browsing, view results) ─────────────
+  manager-1:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "5"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.106
+
+  manager-2:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "6"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.107
+
+  # ── Monitoring agents (health + service checks) ─────────
+  monitor-health:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "7"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.108
+
+  monitor-service:
+    <<: *common
+    environment:
+      WEB_SERVER_IP: ${WEB_SERVER_IP}
+      DNS_SERVER_IP: "10.0.1.12"
+      USER_PROFILE: "8"
+    networks:
+      vpcnet:
+        ipv4_address: 10.0.0.109
+
+networks:
+  vpcnet:
+    driver: ipvlan
+    driver_opts:
+      parent: enp39s0
+      ipvlan_mode: l2
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24
+          gateway: 10.0.0.1

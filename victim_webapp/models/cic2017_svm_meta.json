@@ -1,0 +1,53 @@
+{
+  "dataset": "cic2017",
+  "model": "svm",
+  "display_name": "SVM (SGD)",
+  "accuracy": 0.9649,
+  "training_time_sec": 1.0,
+  "needs_scaler": true,
+  "report": {
+    "BENIGN": {
+      "precision": 0.9874226006191951,
+      "recall": 0.9675767918088737,
+      "f1-score": 0.9773989657153802,
+      "support": 5274.0
+    },
+    "BruteForce": {
+      "precision": 1.0,
+      "recall": 0.676923076923077,
+      "f1-score": 0.8073394495412844,
+      "support": 65.0
+    },
+    "DDoS": {
+      "precision": 1.0,
+      "recall": 0.963963963963964,
+      "f1-score": 0.981651376146789,
+      "support": 555.0
+    },
+    "DoS": {
+      "precision": 0.8262195121951219,
+      "recall": 0.9713261648745519,
+      "f1-score": 0.8929159802306426,
+      "support": 837.0
+    },
+    "Infiltration": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 1.0
+    },
+    "accuracy": 0.9649435531788473,
+    "macro avg": {
+      "precision": 0.9627284225628634,
+      "recall": 0.9159579995140932,
+      "f1-score": 0.9318611543268192,
+      "support": 6732.0
+    },
+    "weighted avg": {
+      "precision": 0.9685401852900998,
+      "recall": 0.9649435531788473,
+      "f1-score": 0.9656070110840188,
+      "support": 6732.0
+    }
+  }
+}

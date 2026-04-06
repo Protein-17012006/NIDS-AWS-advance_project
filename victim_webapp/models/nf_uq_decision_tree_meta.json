@@ -1,0 +1,53 @@
+{
+  "dataset": "nf_uq",
+  "model": "decision_tree",
+  "display_name": "Decision Tree",
+  "accuracy": 0.9043,
+  "training_time_sec": 0.19,
+  "needs_scaler": false,
+  "report": {
+    "BENIGN": {
+      "precision": 0.9141295862607338,
+      "recall": 0.658975801913337,
+      "f1-score": 0.7658600392413342,
+      "support": 1777.0
+    },
+    "BruteForce": {
+      "precision": 1.0,
+      "recall": 0.9988235294117647,
+      "f1-score": 0.9994114184814596,
+      "support": 850.0
+    },
+    "DDoS": {
+      "precision": 0.9945774966109354,
+      "recall": 0.9883251010327795,
+      "f1-score": 0.9914414414414414,
+      "support": 2227.0
+    },
+    "DoS": {
+      "precision": 0.9899159663865547,
+      "recall": 0.9915824915824916,
+      "f1-score": 0.990748528174937,
+      "support": 2376.0
+    },
+    "Infiltration": {
+      "precision": 0.45429864253393665,
+      "recall": 0.8394648829431438,
+      "f1-score": 0.5895478567234292,
+      "support": 598.0
+    },
+    "accuracy": 0.9043178334184977,
+    "macro avg": {
+      "precision": 0.8705843383584322,
+      "recall": 0.8954343613767033,
+      "f1-score": 0.8674018568125202,
+      "support": 7828.0
+    },
+    "weighted avg": {
+      "precision": 0.9342160557112449,
+      "recall": 0.9043178334184977,
+      "f1-score": 0.9101866641281863,
+      "support": 7828.0
+    }
+  }
+}

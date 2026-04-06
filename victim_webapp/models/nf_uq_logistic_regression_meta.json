@@ -1,0 +1,53 @@
+{
+  "dataset": "nf_uq",
+  "model": "logistic_regression",
+  "display_name": "Logistic Regression",
+  "accuracy": 0.9036,
+  "training_time_sec": 1.46,
+  "needs_scaler": true,
+  "report": {
+    "BENIGN": {
+      "precision": 0.738585496866607,
+      "recall": 0.9285312324141812,
+      "f1-score": 0.8227374719521316,
+      "support": 1777.0
+    },
+    "BruteForce": {
+      "precision": 0.9953051643192489,
+      "recall": 0.9976470588235294,
+      "f1-score": 0.9964747356051704,
+      "support": 850.0
+    },
+    "DDoS": {
+      "precision": 0.9860234445446348,
+      "recall": 0.9820386169735069,
+      "f1-score": 0.9840269966254218,
+      "support": 2227.0
+    },
+    "DoS": {
+      "precision": 0.9828693790149893,
+      "recall": 0.9659090909090909,
+      "f1-score": 0.9743154319677351,
+      "support": 2376.0
+    },
+    "Infiltration": {
+      "precision": 0.49206349206349204,
+      "recall": 0.15551839464882944,
+      "f1-score": 0.2363405336721728,
+      "support": 598.0
+    },
+    "accuracy": 0.9035513541134389,
+    "macro avg": {
+      "precision": 0.8389693953617943,
+      "recall": 0.8059288787538275,
+      "f1-score": 0.8027790339645262,
+      "support": 7828.0
+    },
+    "weighted avg": {
+      "precision": 0.8921693461162246,
+      "recall": 0.9035513541134389,
+      "f1-score": 0.8886996985052944,
+      "support": 7828.0
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "dataset": "cic2018",
+  "model": "knn",
+  "display_name": "K-Nearest Neighbors",
+  "accuracy": 0.9222,
+  "training_time_sec": 0.01,
+  "needs_scaler": true,
+  "report": {
+    "BENIGN": {
+      "precision": 0.709508881922675,
+      "recall": 0.7960140679953107,
+      "f1-score": 0.7502762430939226,
+      "support": 853.0
+    },
+    "BruteForce": {
+      "precision": 0.9956255468066492,
+      "recall": 0.9982456140350877,
+      "f1-score": 0.9969338589575121,
+      "support": 1140.0
+    },
+    "DDoS": {
+      "precision": 0.9973890339425587,
+      "recall": 0.9986928104575163,
+      "f1-score": 0.9980404964075767,
+      "support": 1530.0
+    },
+    "DoS": {
+      "precision": 0.9936474325039704,
+      "recall": 0.9978734715576821,
+      "f1-score": 0.9957559681697613,
+      "support": 1881.0
+    },
+    "Infiltration": {
+      "precision": 0.5536723163841808,
+      "recall": 0.416135881104034,
+      "f1-score": 0.47515151515151516,
+      "support": 471.0
+    },
+    "accuracy": 0.9222127659574468,
+    "macro avg": {
+      "precision": 0.8499686423120068,
+      "recall": 0.8413923690299262,
+      "f1-score": 0.8432316163560577,
+      "support": 5875.0
+    },
+    "weighted avg": {
+      "precision": 0.9184782813836007,
+      "recall": 0.9222127659574468,
+      "f1-score": 0.919200941929865,
+      "support": 5875.0
+    }
+  }
+}

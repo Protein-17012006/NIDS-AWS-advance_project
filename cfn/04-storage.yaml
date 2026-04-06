@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NIDS v3 S3 bucket + ECR repositories.
+
+Resources:
+  # ============================================================
+  # S3 BUCKET (model weights, sensor data)
+  # ============================================================
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'nids-${AWS::AccountId}-data'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  # ============================================================
+  # ECR REPOSITORIES
+  # ============================================================
+  ECRIDSEngine:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: nids-ids-engine
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  ECRDashboard:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: nids-dashboard
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+Outputs:
+  DataBucketName:
+    Value: !Ref DataBucket
+    Export:
+      Name: NIDS-DataBucket
+  ECRIDSEngineUri:
+    Value: !GetAtt ECRIDSEngine.RepositoryUri
+    Export:
+      Name: NIDS-ECR-IDSEngine
+  ECRDashboardUri:
+    Value: !GetAtt ECRDashboard.RepositoryUri
+    Export:
+      Name: NIDS-ECR-Dashboard

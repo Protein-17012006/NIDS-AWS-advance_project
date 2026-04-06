@@ -1,0 +1,18 @@
+{
+    "repositories": [
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-1:341796273409:repository/nids-user-simulator",
+            "registryId": "341796273409",
+            "repositoryName": "nids-user-simulator",
+            "repositoryUri": "341796273409.dkr.ecr.ap-southeast-1.amazonaws.com/nids-user-simulator",
+            "createdAt": "2026-04-02T12:19:20.148000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": false
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        }
+    ]
+}

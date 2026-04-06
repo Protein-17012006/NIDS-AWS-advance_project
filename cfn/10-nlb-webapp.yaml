@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Multi-port NLB to expose Victim WebServer services to the internet for live demo"
+
+Resources:
+  # ═══════════════════════════════════════════════════════════
+  # Network Load Balancer — TCP pass-through preserves source IP
+  # ═══════════════════════════════════════════════════════════
+  WebAppNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: NIDS-WebApp-NLB
+      Scheme: internet-facing
+      Type: network
+      Subnets:
+        - !ImportValue NIDS-PublicSubnet-Id
+        - !ImportValue NIDS-PublicSubnet2-Id
+      Tags:
+        - Key: Name
+          Value: NIDS-WebApp-NLB
+
+  # ═══════════════════════════════════════════════════════════
+  # Target Groups — one per service port on WebServer
+  # ═══════════════════════════════════════════════════════════
+
+  # ML WebApp (React SPA + API proxy) — TCP:80 → instance:3000
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: TCP
+      Port: 3000
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckEnabled: true
+      HealthCheckProtocol: TCP
+      HealthCheckPort: "3000"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 10
+      Targets:
+        - Id: !ImportValue NIDS-WebServer-InstanceId
+          Port: 3000
+      Tags:
+        - Key: Name
+          Value: NIDS-TG-WebApp
+
+  # FTP service — TCP:21 → instance:21
+  TGFTP:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: NIDS-TG-FTP
+      Protocol: TCP
+      Port: 21
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckEnabled: true
+      HealthCheckProtocol: TCP
+      HealthCheckPort: "3000"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 10
+      Targets:
+        - Id: !ImportValue NIDS-WebServer-InstanceId
+          Port: 21
+      Tags:
+        - Key: Name
+          Value: NIDS-TG-FTP
+
+  # SSH service — TCP:22 → instance:22
+  TGSSH:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: NIDS-TG-SSH
+      Protocol: TCP
+      Port: 22
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckEnabled: true
+      HealthCheckProtocol: TCP
+      HealthCheckPort: "3000"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 10
+      Targets:
+        - Id: !ImportValue NIDS-WebServer-InstanceId
+          Port: 22
+      Tags:
+        - Key: Name
+          Value: NIDS-TG-SSH
+
+  # Weak SSH (honeypot) — TCP:2222 → instance:2222
+  TGWeakSSH:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: NIDS-TG-WeakSSH
+      Protocol: TCP
+      Port: 2222
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckEnabled: true
+      HealthCheckProtocol: TCP
+      HealthCheckPort: "3000"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 10
+      Targets:
+        - Id: !ImportValue NIDS-WebServer-InstanceId
+          Port: 2222
+      Tags:
+        - Key: Name
+          Value: NIDS-TG-WeakSSH
+
+  # DVWA — TCP:8080 → instance:8080
+  TGDVWA:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: NIDS-TG-DVWA
+      Protocol: TCP
+      Port: 8080
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckEnabled: true
+      HealthCheckProtocol: TCP
+      HealthCheckPort: "3000"
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 10
+      Targets:
+        - Id: !ImportValue NIDS-WebServer-InstanceId
+          Port: 8080
+      Tags:
+        - Key: Name
+          Value: NIDS-TG-DVWA
+
+  # ═══════════════════════════════════════════════════════════
+  # Listeners — one per port
+  # ═══════════════════════════════════════════════════════════
+
+  WebAppListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebAppNLB
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebAppTargetGroup
+
+  ListenerFTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebAppNLB
+      Protocol: TCP
+      Port: 21
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TGFTP
+
+  ListenerSSH:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebAppNLB
+      Protocol: TCP
+      Port: 22
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TGSSH
+
+  ListenerWeakSSH:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebAppNLB
+      Protocol: TCP
+      Port: 2222
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TGWeakSSH
+
+  ListenerDVWA:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref WebAppNLB
+      Protocol: TCP
+      Port: 8080
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TGDVWA
+
+Outputs:
+  WebAppNLBDNS:
+    Description: "Public DNS of the ML Web App NLB"
+    Value: !GetAtt WebAppNLB.DNSName
+    Export:
+      Name: NIDS-WebApp-NLB-DNS
+
+  WebAppURL:
+    Description: "URL to access the ML Web App"
+    Value: !Sub "http://${WebAppNLB.DNSName}"

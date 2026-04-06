@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Attack Simulator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0f;color:#c9d1d9;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+header{padding:18px 28px;border-bottom:1px solid #21262d;display:flex;align-items:center;gap:14px}
+header h1{font-size:22px;font-weight:700;color:#f85149}
+header span{font-size:12px;color:#8b949e}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;padding:24px 28px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px;transition:border-color .2s}
+.card:hover{border-color:#58a6ff}
+.card h2{font-size:16px;font-weight:600}
+.card .desc{font-size:12px;color:#8b949e;line-height:1.4}
+.card .severity{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+.sev-critical{background:#f8514922;color:#f85149}
+.sev-high{background:#d2992222;color:#d29922}
+.dur-row{display:flex;align-items:center;gap:10px;font-size:13px}
+.dur-row input[type=range]{flex:1;accent-color:#58a6ff}
+.dur-row .val{min-width:40px;text-align:right;color:#58a6ff;font-weight:600}
+.actions{display:flex;gap:8px;margin-top:auto}
+.btn{flex:1;padding:10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;transition:background .2s}
+.btn-launch{background:#238636;color:#fff}
+.btn-launch:hover{background:#2ea043}
+.btn-launch:disabled{background:#21262d;color:#484f58;cursor:not-allowed}
+.btn-stop{background:#da3633;color:#fff}
+.btn-stop:hover{background:#f85149}
+.btn-stop:disabled{background:#21262d;color:#484f58;cursor:not-allowed}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.status-idle{background:#21262d;color:#8b949e}
+.status-running{background:#23863622;color:#3fb950;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+#terminal{margin:0 28px 28px;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:14px;height:260px;overflow-y:auto;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;line-height:1.6;color:#8b949e}
+#terminal .line-sys{color:#58a6ff}
+#terminal .line-ddos{color:#f85149}
+#terminal .line-dos_slow{color:#d29922}
+#terminal .line-bruteforce{color:#d2a8ff}
+#terminal .line-infiltration{color:#f0883e}
+.footer{text-align:center;padding:12px;font-size:11px;color:#484f58}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>&#9760; Attack Simulator</h1>
+  <span>Attacker EC2 &mdash; NIDS Demo</span>
+  <span id="ws-status" style="margin-left:auto;font-size:11px;color:#f85149">&#9679; Disconnected</span>
+</header>
+
+<div class="grid" id="cards"></div>
+
+<div style="padding:0 28px 8px;font-size:13px;font-weight:600;color:#8b949e">Live Output</div>
+<div id="terminal"></div>
+
+<div class="footer">Attack traffic is mirrored to IDS Sensor for ML detection.</div>
+
+<script>
+const ATTACKS = {
+  ddos:         {label:'DDoS',         desc:'SYN flood + UDP flood + HTTP flood. High volume, spoofed packets.', severity:'critical'},
+  dos_slow:     {label:'DoS',          desc:'HTTP POST flood, Slowloris, rapid reconnect. Targets ports 3000 & 8080.', severity:'high'},
+  bruteforce:   {label:'BruteForce',   desc:'SSH brute-force via hydra against weak-ssh on port 2222.', severity:'high'},
+  infiltration: {label:'Infiltration', desc:'Targeted recon, web exploitation on DVWA, credential stuffing, data exfiltration.', severity:'critical'},
+};
+
+const state = {};
+Object.keys(ATTACKS).forEach(k => { state[k] = {running:false, dur:60}; });
+
+// --- Render cards ---
+const grid = document.getElementById('cards');
+Object.entries(ATTACKS).forEach(([key, atk]) => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'card-'+key;
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2>${atk.label}</h2>
+      <span class="status-badge status-idle" id="status-${key}">Idle</span>
+    </div>
+    <div class="desc">${atk.desc}</div>
+    <span class="severity sev-${atk.severity}">${atk.severity}</span>
+    <div class="dur-row">
+      <span>Duration</span>
+      <input type="range" min="30" max="300" step="10" value="60" id="dur-${key}"
+             oninput="updDur('${key}',this.value)"/>
+      <span class="val" id="durval-${key}">60s</span>
+    </div>
+    <div class="actions">
+      <button class="btn btn-launch" id="launch-${key}" onclick="launch('${key}')">Launch</button>
+      <button class="btn btn-stop" id="stop-${key}" onclick="stop('${key}')" disabled>Stop</button>
+    </div>`;
+  grid.appendChild(card);
+});
+
+function updDur(k,v){ state[k].dur=parseInt(v); document.getElementById('durval-'+k).textContent=v+'s'; }
+
+function setRunning(k, running){
+  state[k].running = running;
+  const badge = document.getElementById('status-'+k);
+  const launchBtn = document.getElementById('launch-'+k);
+  const stopBtn = document.getElementById('stop-'+k);
+  badge.textContent = running ? 'Running' : 'Idle';
+  badge.className = 'status-badge ' + (running ? 'status-running' : 'status-idle');
+  launchBtn.disabled = running;
+  stopBtn.disabled = !running;
+}
+
+async function launch(k){
+  const dur = state[k].dur;
+  setRunning(k, true);
+  try {
+    const r = await fetch(`/api/launch/${k}?duration=${dur}`, {method:'POST'});
+    const j = await r.json();
+    if(j.error){ addLine('system', j.error); setRunning(k,false); }
+  } catch(e){ addLine('system','Network error: '+e); setRunning(k,false); }
+  // Auto-reset after duration + buffer
+  setTimeout(() => setRunning(k, false), (dur + 15) * 1000);
+}
+
+async function stop(k){
+  try {
+    await fetch(`/api/stop/${k}`, {method:'POST'});
+  } catch(e){ addLine('system','Stop error: '+e); }
+  setRunning(k, false);
+}
+
+// --- WebSocket terminal ---
+const term = document.getElementById('terminal');
+const wsStatus = document.getElementById('ws-status');
+let ws;
+
+function connect(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { wsStatus.style.color='#3fb950'; wsStatus.innerHTML='&#9679; Connected'; };
+  ws.onclose = () => { wsStatus.style.color='#f85149'; wsStatus.innerHTML='&#9679; Disconnected'; setTimeout(connect, 2000); };
+  ws.onmessage = (e) => {
+    const m = e.data;
+    // Determine line class from prefix like [ddos] or [system]
+    const match = m.match(/^\[(\w+)\]/);
+    const cls = match ? 'line-'+match[1] : '';
+    addLine(cls, m);
+  };
+}
+
+function addLine(cls, text){
+  const el = document.createElement('div');
+  if(cls && !cls.startsWith('line-')) cls = 'line-'+cls;
+  if(cls) el.className = cls;
+  el.textContent = text;
+  term.appendChild(el);
+  // Keep max 500 lines
+  while(term.children.length > 500) term.removeChild(term.firstChild);
+  term.scrollTop = term.scrollHeight;
+}
+
+connect();
+
+// Poll status to sync UI
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/status');
+    const j = await r.json();
+    Object.keys(ATTACKS).forEach(k => {
+      const isActive = j.active.includes(k);
+      if(isActive !== state[k].running) setRunning(k, isActive);
+    });
+  } catch(e){}
+}, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NIDS v3 Traffic Mirroring — mirrors all TCP/UDP/ICMP from WebServer
+  ENI to Sensor ENI via VXLAN.
+
+Resources:
+  # ============================================================
+  # MIRROR FILTER — Capture all TCP/UDP/ICMP
+  # ============================================================
+  MirrorFilter:
+    Type: AWS::EC2::TrafficMirrorFilter
+    Properties:
+      Description: Capture all TCP, UDP, and ICMP traffic
+      Tags:
+        - Key: Name
+          Value: NIDS-MirrorFilter
+
+  MirrorFilterRuleTCPIngress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: ingress
+      RuleNumber: 100
+      RuleAction: accept
+      Protocol: 6
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  MirrorFilterRuleTCPEgress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: egress
+      RuleNumber: 100
+      RuleAction: accept
+      Protocol: 6
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  MirrorFilterRuleUDPIngress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: ingress
+      RuleNumber: 200
+      RuleAction: accept
+      Protocol: 17
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  MirrorFilterRuleUDPEgress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: egress
+      RuleNumber: 200
+      RuleAction: accept
+      Protocol: 17
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  MirrorFilterRuleICMPIngress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: ingress
+      RuleNumber: 300
+      RuleAction: accept
+      Protocol: 1
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  MirrorFilterRuleICMPEgress:
+    Type: AWS::EC2::TrafficMirrorFilterRule
+    Properties:
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      TrafficDirection: egress
+      RuleNumber: 300
+      RuleAction: accept
+      Protocol: 1
+      DestinationCidrBlock: '0.0.0.0/0'
+      SourceCidrBlock: '0.0.0.0/0'
+
+  # ============================================================
+  # MIRROR TARGET — Sensor ENI
+  # ============================================================
+  MirrorTarget:
+    Type: AWS::EC2::TrafficMirrorTarget
+    Properties:
+      NetworkInterfaceId: !ImportValue NIDS-SensorENI-Id
+      Tags:
+        - Key: Name
+          Value: NIDS-MirrorTarget-Sensor
+
+  # ============================================================
+  # MIRROR SESSIONS — WebServer → Sensor
+  # ============================================================
+  WebServerMirrorSession:
+    Type: AWS::EC2::TrafficMirrorSession
+    Properties:
+      NetworkInterfaceId: !ImportValue NIDS-WebServerENI-Id
+      TrafficMirrorTargetId: !Ref MirrorTarget
+      TrafficMirrorFilterId: !Ref MirrorFilter
+      SessionNumber: 1
+      Tags:
+        - Key: Name
+          Value: NIDS-Mirror-WebServer
+
+Outputs:
+  MirrorFilterId:
+    Value: !Ref MirrorFilter
+    Export:
+      Name: NIDS-MirrorFilter-Id
+  MirrorTargetId:
+    Value: !Ref MirrorTarget
+    Export:
+      Name: NIDS-MirrorTarget-Id

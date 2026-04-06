@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NIDS Data Collection — Lambda (hourly via EventBridge) pulls labeled data
+  from IDS Engine adaptation buffer and stores gzip JSON in S3.
+
+Resources:
+  # ============================================================
+  # SECURITY GROUP — Lambda (egress only)
+  # ============================================================
+  SGLambdaCollector:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda data collector - egress to IDS Engine and S3
+      VpcId: !ImportValue NIDS-VPC-Id
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: !ImportValue NIDS-VPC-Cidr
+          Description: IDS Engine API
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+          Description: S3 and CloudWatch via NAT
+      Tags:
+        - Key: Name
+          Value: NIDS-SG-LambdaCollector
+        - Key: Project
+          Value: NIDS
+
+  # ============================================================
+  # LAMBDA FUNCTION
+  # ============================================================
+  CollectDataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nids-data-collection
+      Description: Collect labeled data from IDS Engine buffer → S3
+      Runtime: python3.10
+      Handler: handler.handler
+      Timeout: 300
+      MemorySize: 512
+      Role: !ImportValue NIDS-DataCollectionLambdaRole-Arn
+      VpcConfig:
+        SubnetIds:
+          - !ImportValue NIDS-IDSSubnet-Id
+        SecurityGroupIds:
+          - !Ref SGLambdaCollector
+      Environment:
+        Variables:
+          IDS_ENGINE_URL: 'http://engine.nids.local:8000'
+          S3_BUCKET: !ImportValue NIDS-DataBucket
+          S3_PREFIX: collected-data
+          PAGE_SIZE: '1000'
+      Code:
+        ZipFile: |
+          # Placeholder — real code deployed via update-function-code
+          def handler(event, context):
+              return {"status": "placeholder"}
+      Tags:
+        - Key: Project
+          Value: NIDS
+
+  # ============================================================
+  # EVENTBRIDGE RULE — every 1 hour
+  # ============================================================
+  HourlyCollectionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: nids-hourly-data-collection
+      Description: Trigger data collection Lambda every hour
+      ScheduleExpression: 'rate(1 hour)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt CollectDataFunction.Arn
+          Id: CollectDataTarget
+
+  # ============================================================
+  # LAMBDA PERMISSION — allow EventBridge to invoke
+  # ============================================================
+  EventBridgeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CollectDataFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt HourlyCollectionRule.Arn
+
+Outputs:
+  CollectDataFunctionArn:
+    Value: !GetAtt CollectDataFunction.Arn
+    Export:
+      Name: NIDS-CollectDataFunction-Arn
+  CollectDataFunctionName:
+    Value: !Ref CollectDataFunction
+    Export:
+      Name: NIDS-CollectDataFunction-Name

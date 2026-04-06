@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NIDS Application Load Balancer — public internet access to Dashboard.
+
+Parameters:
+  DashboardInstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: Dashboard EC2 instance ID for target group
+
+Resources:
+  # ============================================================
+  # APPLICATION LOAD BALANCER
+  # ============================================================
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: NIDS-Dashboard-ALB
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !ImportValue NIDS-SG-ALB
+      Subnets:
+        - !ImportValue NIDS-PublicSubnet-Id
+        - !ImportValue NIDS-PublicSubnet2-Id
+      Tags:
+        - Key: Name
+          Value: NIDS-Dashboard-ALB
+
+  # ============================================================
+  # TARGET GROUP
+  # ============================================================
+  DashboardTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: NIDS-Dashboard-TG
+      Port: 3000
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !ImportValue NIDS-VPC-Id
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Targets:
+        - Id: !Ref DashboardInstanceId
+          Port: 3000
+      Tags:
+        - Key: Name
+          Value: NIDS-Dashboard-TG
+
+  # ============================================================
+  # LISTENER
+  # ============================================================
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DashboardTargetGroup
+
+Outputs:
+  ALBDNSName:
+    Description: Public URL for the NIDS Dashboard
+    Value: !Sub 'http://${ALB.DNSName}'
+    Export:
+      Name: NIDS-ALB-DNS
+
+  ALBArn:
+    Value: !Ref ALB
+    Export:
+      Name: NIDS-ALB-Arn

@@ -1,0 +1,53 @@
+{
+  "dataset": "cic2017",
+  "model": "logistic_regression",
+  "display_name": "Logistic Regression",
+  "accuracy": 0.9678,
+  "training_time_sec": 1.49,
+  "needs_scaler": true,
+  "report": {
+    "BENIGN": {
+      "precision": 0.9893575851393189,
+      "recall": 0.9694728858551385,
+      "f1-score": 0.9793143076039073,
+      "support": 5274.0
+    },
+    "BruteForce": {
+      "precision": 0.9565217391304348,
+      "recall": 0.676923076923077,
+      "f1-score": 0.7927927927927928,
+      "support": 65.0
+    },
+    "DDoS": {
+      "precision": 0.9890710382513661,
+      "recall": 0.9783783783783784,
+      "f1-score": 0.9836956521739131,
+      "support": 555.0
+    },
+    "DoS": {
+      "precision": 0.8409090909090909,
+      "recall": 0.972520908004779,
+      "f1-score": 0.9019390581717451,
+      "support": 837.0
+    },
+    "Infiltration": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 1.0
+    },
+    "accuracy": 0.9677658942364825,
+    "macro avg": {
+      "precision": 0.9551718906860422,
+      "recall": 0.9194590498322747,
+      "f1-score": 0.9315483621484717,
+      "support": 6732.0
+    },
+    "weighted avg": {
+      "precision": 0.9705616685069315,
+      "recall": 0.9677658942364825,
+      "f1-score": 0.9682574670945946,
+      "support": 6732.0
+    }
+  }
+}

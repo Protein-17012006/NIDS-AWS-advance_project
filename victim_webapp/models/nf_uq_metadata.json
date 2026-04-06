@@ -1,0 +1,20 @@
+{
+  "name": "NF-UQ-NIDS-v2",
+  "key": "nf_uq",
+  "total_samples": 39138,
+  "num_features": 37,
+  "classes": [
+    "BENIGN",
+    "BruteForce",
+    "DDoS",
+    "DoS",
+    "Infiltration"
+  ],
+  "class_distribution": {
+    "DoS": 11882,
+    "DDoS": 11133,
+    "BENIGN": 8884,
+    "BruteForce": 4251,
+    "Infiltration": 2988
+  }
+}

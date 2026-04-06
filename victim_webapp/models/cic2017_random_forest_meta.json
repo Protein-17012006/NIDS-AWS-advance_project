@@ -1,0 +1,53 @@
+{
+  "dataset": "cic2017",
+  "model": "random_forest",
+  "display_name": "Random Forest",
+  "accuracy": 0.9955,
+  "training_time_sec": 0.39,
+  "needs_scaler": false,
+  "report": {
+    "BENIGN": {
+      "precision": 0.9996189024390244,
+      "recall": 0.9946909366704588,
+      "f1-score": 0.9971488310207185,
+      "support": 5274.0
+    },
+    "BruteForce": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 65.0
+    },
+    "DDoS": {
+      "precision": 0.9964093357271095,
+      "recall": 1.0,
+      "f1-score": 0.9982014388489209,
+      "support": 555.0
+    },
+    "DoS": {
+      "precision": 0.9698375870069605,
+      "recall": 0.998805256869773,
+      "f1-score": 0.9841082989994114,
+      "support": 837.0
+    },
+    "Infiltration": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 1.0
+    },
+    "accuracy": 0.9955436720142602,
+    "macro avg": {
+      "precision": 0.7931731650346189,
+      "recall": 0.7986992387080464,
+      "f1-score": 0.7958917137738102,
+      "support": 6732.0
+    },
+    "weighted avg": {
+      "precision": 0.9955067339745672,
+      "recall": 0.9955436720142602,
+      "f1-score": 0.9954936689879572,
+      "support": 6732.0
+    }
+  }
+}
