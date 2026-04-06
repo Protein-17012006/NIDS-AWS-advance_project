@@ -1,4 +1,4 @@
-Build a complete Network Intrusion Detection System (NIDS) on the AWS Cloud platform, using a Deep Learning ensemble model that combines multiple architectures (CNN+LSTM, BiLSTM, Transformer) with a Meta-Learner, capable of:
+The project focuses on building a comprehensive Network Intrusion Detection System (NIDS) on the AWS cloud platform, capable of analyzing and classifying network traffic in real time. The system utilizes an Ensemble deep learning architecture, combining advanced models such as CNN+LSTM, BiLSTM, and Transformer, along with a Meta-Learner mechanism to accurately identify four common attack types: DDoS, DoS, BruteForce, and Infiltration. In addition to detection capabilities, the system integrates an auto-response mechanism and an automated data collection pipeline (CI/CD for ML data) to continuously refine the model.
 
 - Detecting 4 types of attacks: **DDoS**, **DoS**, **BruteForce**, **Infiltration**
 - Classifying real-time traffic from live network traffic
