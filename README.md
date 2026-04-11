@@ -5,8 +5,7 @@
 - Automatically responding by blocking attacking IPs via Network ACL
 - Automatically collecting data periodically to retrain the model
 - Visual real-time monitoring dashboard
-<img width="803" height="810" alt="image" src="https://github.com/user-attachments/assets/86e5892f-f2c4-4208-8cba-1ea9ac40fe8a" />
-
+<img width="803" height="795" alt="image" src="https://github.com/user-attachments/assets/140f314a-935b-439d-be3d-89cac0962df4" />
 
 2. Cloud Infrastructure Architecture (AWS Architecture)
 The system is designed entirely on AWS with high encapsulation, using VPCs divided into multiple separate subnets to isolate and secure data.
